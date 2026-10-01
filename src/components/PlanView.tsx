@@ -25,14 +25,19 @@ export default function PlanView({ result }: Props) {
     warnings,
     margin,
     items,
+    robust,
   } = result;
   const marginUnresolvable = warnings.some(
     (w) => w.code === 'margin-below-resolution',
   );
+  const failure = robust.failure;
+  // 失败见证边（与标称最危险边可能不是同一条），取自同一分析结果
+  const witnessEdge = failure ? edges[failure.edgeIndex] : null;
 
-  // 统一包围盒：支撑多边形、全部货物、重心
+  // 统一包围盒：支撑多边形、标称重心、失败见证重心
   const points: Point[] = [...polygon, cog];
   const maxWeight = Math.max(...items.map((i) => i.weight));
+  if (failure) points.push(failure.cog);
   // safeRegion 为空（余量过大导致塌缩）时不参与包围盒
   if (safeRegion.length >= 3) points.push(...safeRegion);
 
@@ -192,7 +197,69 @@ export default function PlanView({ result }: Props) {
         );
       })}
 
-      {/* 合成重心 */}
+      {/*
+        鲁棒失败见证：一组可复算的极端重量组合。
+        失守边用橙色粗边（与标称最危险边的红色相区分），
+        见证重心用橙色实心三角 + 虚线垂线（与青色标称十字相区分）。
+      */}
+      {failure && witnessEdge && (
+        <g>
+          <line
+            x1={sx(witnessEdge.a.x)}
+            y1={sy(witnessEdge.a.y)}
+            x2={sx(witnessEdge.b.x)}
+            y2={sy(witnessEdge.b.y)}
+            stroke="#f97316"
+            strokeWidth={5}
+            strokeLinecap="round"
+          />
+          {(() => {
+            const wdx = witnessEdge.b.x - witnessEdge.a.x;
+            const wdy = witnessEdge.b.y - witnessEdge.a.y;
+            const wt =
+              ((failure.cog.x - witnessEdge.a.x) * wdx +
+                (failure.cog.y - witnessEdge.a.y) * wdy) /
+              (wdx * wdx + wdy * wdy);
+            const wfoot: Point = {
+              x: witnessEdge.a.x + wt * wdx,
+              y: witnessEdge.a.y + wt * wdy,
+            };
+            const tx = sx(failure.cog.x);
+            const ty = sy(failure.cog.y);
+            return (
+              <g>
+                <line
+                  x1={tx}
+                  y1={ty}
+                  x2={sx(wfoot.x)}
+                  y2={sy(wfoot.y)}
+                  stroke="#fb923c"
+                  strokeWidth={1.8}
+                  strokeDasharray="6 4"
+                />
+                <circle cx={sx(wfoot.x)} cy={sy(wfoot.y)} r={3} fill="#fb923c" />
+                <polygon
+                  points={`${tx},${ty - 9} ${tx - 8},${ty + 6} ${tx + 8},${ty + 6}`}
+                  fill="#f97316"
+                  stroke="#fed7aa"
+                  strokeWidth={1.5}
+                />
+                <text
+                  x={tx + 12}
+                  y={ty + 16}
+                  fontSize={13}
+                  fontWeight={700}
+                  fill="#fdba74"
+                >
+                  失败见证重心
+                </text>
+              </g>
+            );
+          })()}
+        </g>
+      )}
+
+      {/* 合成重心（标称登记重量） */}
       <g>
         <circle cx={sx(cog.x)} cy={sy(cog.y)} r={9} fill="none" stroke="#22d3ee" strokeWidth={2} />
         <line
@@ -229,7 +296,7 @@ export default function PlanView({ result }: Props) {
             <text
               key={w.code}
               x={VIEW_W / 2}
-              y={VIEW_H - 26 + i * 18}
+              y={VIEW_H - 26 - (failure ? 18 : 0) + i * 18}
               textAnchor="middle"
               fontSize={13}
               fontWeight={600}
@@ -239,6 +306,21 @@ export default function PlanView({ result }: Props) {
             </text>
           ))}
         </g>
+      )}
+
+      {/* 鲁棒失败与数值面板同一结论：橙色三角为可复算极端组合的见证重心 */}
+      {failure && (
+        <text
+          x={VIEW_W / 2}
+          y={VIEW_H - 8}
+          textAnchor="middle"
+          fontSize={13}
+          fontWeight={700}
+          fill="#fb923c"
+        >
+          ⚠ 鲁棒不放行：存在允许重量组合使边 #{failure.edgeIndex} 失守（橙色三角为见证重心，
+          极端重量见数值面板）
+        </text>
       )}
     </svg>
   );

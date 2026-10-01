@@ -36,6 +36,8 @@ export default function CargoTable({ form, onChange }: Props) {
             <tr>
               <th>ID</th>
               <th>重量 weight</th>
+              <th>重量下界 min（可选）</th>
+              <th>重量上界 max（可选）</th>
               <th>中心 X</th>
               <th>中心 Y</th>
             </tr>
@@ -52,6 +54,28 @@ export default function CargoTable({ form, onChange }: Props) {
                     value={it.weight}
                     aria-label={`${it.id} 重量`}
                     onChange={(e) => updateItem(i, { weight: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    placeholder="同重量"
+                    value={it.weightMin ?? ''}
+                    aria-label={`${it.id} 重量下界`}
+                    onChange={(e) => updateItem(i, { weightMin: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    placeholder="同重量"
+                    value={it.weightMax ?? ''}
+                    aria-label={`${it.id} 重量上界`}
+                    onChange={(e) => updateItem(i, { weightMax: e.target.value })}
                   />
                 </td>
                 <td>

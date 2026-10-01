@@ -9,7 +9,7 @@ export const MAX_ITEMS = 200;
 
 const ALLOWED_TOP_KEYS = new Set(['polygon', 'items', 'margin']);
 const ALLOWED_POINT_KEYS = new Set(['x', 'y']);
-const ALLOWED_ITEM_KEYS = new Set(['id', 'weight', 'center']);
+const ALLOWED_ITEM_KEYS = new Set(['id', 'weight', 'center', 'weightMin', 'weightMax']);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -141,11 +141,50 @@ export function parseWorkspace(input: unknown): FormResult {
         validWeight = true;
       }
 
+      // 可选的允许重量上下界：省略即沿用登记重量；给定则必须为正数
+      let validBounds = true;
+      let weightMin: number | undefined;
+      let weightMax: number | undefined;
+      if (raw.weightMin !== undefined) {
+        if (!isFiniteNumber(raw.weightMin) || raw.weightMin <= 0) {
+          errors.push(`${path}.weightMin：必须为正数`);
+          validBounds = false;
+        } else {
+          weightMin = raw.weightMin;
+        }
+      }
+      if (raw.weightMax !== undefined) {
+        if (!isFiniteNumber(raw.weightMax) || raw.weightMax <= 0) {
+          errors.push(`${path}.weightMax：必须为正数`);
+          validBounds = false;
+        } else {
+          weightMax = raw.weightMax;
+        }
+      }
+      if (validBounds && weightMin !== undefined && weightMax !== undefined && weightMin > weightMax) {
+        errors.push(`${path}：weightMin 不能大于 weightMax`);
+        validBounds = false;
+      }
+      // 登记重量必须落入登记范围（区间恒包含标称重量）
+      if (validBounds && validWeight) {
+        if (weightMin !== undefined && (weight as number) < weightMin) {
+          errors.push(`${path}：登记重量 weight 不能小于 weightMin`);
+          validBounds = false;
+        }
+        if (weightMax !== undefined && (weight as number) > weightMax) {
+          errors.push(`${path}：登记重量 weight 不能大于 weightMax`);
+          validBounds = false;
+        }
+      }
+
       const center = parsePoint(raw.center, `${path}.center`, errors);
 
       // 任一错误都会让 errors 非空从而整批拒绝；全部合法时才组装
-      if (validId && validWeight && center) {
-        items.push({ id: id as string, weight: weight as number, center });
+      if (validId && validWeight && validBounds && center) {
+        const item: CargoItem = { id: id as string, weight: weight as number, center };
+        if (weightMin !== undefined) item.weightMin = weightMin;
+        if (weightMax !== undefined) item.weightMax = weightMax;
+        items.push(item);
       }
     }
   }

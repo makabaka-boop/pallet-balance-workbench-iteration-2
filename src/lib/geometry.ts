@@ -1,4 +1,13 @@
-import type { EdgeInfo, Point, StabilityResult, Workspace } from './types';
+import type {
+  EdgeInfo,
+  Point,
+  RobustEdgeInfo,
+  RobustFailureWitness,
+  RobustResult,
+  StabilityResult,
+  WeightInterval,
+  Workspace,
+} from './types';
 
 /** 2D 叉积 (b-a) × (c-a)，正值表示 c 在有向边 a→b 的左侧 */
 export function cross(a: Point, b: Point, c: Point): number {
@@ -294,6 +303,170 @@ export function insetPolygon(polygon: Point[], margin: number): Point[] {
 }
 
 /**
+ * 取每件货物的允许重量闭区间。省略任一端点即沿用登记重量，
+ * 因此旧数据（无区间）下每件 min === max === weight。
+ */
+export function weightIntervals(
+  items: { weight: number; weightMin?: number; weightMax?: number }[],
+): WeightInterval[] {
+  return items.map((it) => {
+    const min = it.weightMin ?? it.weight;
+    const max = it.weightMax ?? it.weight;
+    return { min, max, uncertain: min !== max };
+  });
+}
+
+/**
+ * 给定重量组合下的合成重心，溢出安全：按最大重量归一化后计算，
+ * 与 weightedCentroid 的兜底路径同构。任何合法（正、有限）重量组合均可可靠求值。
+ */
+function centroidFromWeights(
+  items: { weight: number; center: Point }[],
+  weights: number[],
+): Point {
+  const maxW = weights.reduce((m, w) => Math.max(m, w), 0);
+  let sx = 0;
+  let sy = 0;
+  let sw = 0;
+  for (let i = 0; i < items.length; i++) {
+    const r = weights[i] / maxW; // ∈ (0,1]；跨度过大时可能下溢为 0（该件贡献可忽略）
+    sx += r * items[i].center.x;
+    sy += r * items[i].center.y;
+    sw += r;
+  }
+  return { x: sx / sw, y: sy / sw };
+}
+
+/**
+ * 单条有向边在整个允许重量盒域 W = ∏[min_i,max_i] 上的最小有符号距离。
+ *
+ * 距离为线性分式：Σ wᵢ·kᵢ / (Σ wᵢ·L)，其中
+ *   kᵢ = cross(a,b,pᵢ)（第 i 件货物中心相对该边的叉积），L = 边长 > 0。
+ * 其水平集 {距离 ≥ t} 等价于 Σ wᵢ(kᵢ − tL) ≥ 0，是盒域上的线性阈值，
+ * 故距离为拟凹函数，**全局最小值必在盒域顶点（每件取下界或上界）取得**。
+ *
+ * 取 t = 最小值时的最优顶点是按 dᵢ = kᵢ/L（各件中心到该边的有符号距离）
+ * 与 t 的大小分段：要最小化分式，dᵢ < t 的取**上界**（压低均值），dᵢ ≥ t 取下界。
+ * 候选切点只有 n+1 个，逐一计算即可精确找到全局最小
+ * （O(n² log n)，件数 ≤ 200），无须抽样。
+ *
+ * 全部运算以最大上界重量归一化，合计溢出时结论仍可靠。
+ */
+function worstEdgeDistance(
+  items: { weight: number; center: Point }[],
+  intervals: WeightInterval[],
+  a: Point,
+  b: Point,
+): { value: number; weights: number[]; cog: Point } {
+  const n = items.length;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+
+  // 以最大上界重量归一化，避免 Σw 溢出；分式距离对公共缩放不敏感
+  const maxHi = intervals.reduce((m, iv) => Math.max(m, iv.max), 0);
+  const lo = intervals.map((iv) => iv.min / maxHi);
+  const hi = intervals.map((iv) => iv.max / maxHi);
+  // 每件中心到该边的有符号距离 d_i = cross(a,b,p_i)/len
+  const d = items.map((it) => cross(a, b, it.center) / len);
+
+  // 按 d_i 升序的下标。候选分段：前 cut 个（d 最小）取上界，其余取下界，cut = 0..n
+  const order = d.map((_, i) => i).sort((i, j) => d[i] - d[j]);
+
+  // cut = 0：全部取下界；cut = n：全部取上界；其间为各切点
+  let best: { value: number; atHi: boolean[] } = {
+    value: Infinity,
+    atHi: [],
+  };
+  const evaluate = (cut: number): { value: number; atHi: boolean[] } => {
+    // 按 d 升序后：前 cut 个（d 最小）取上界，其余取下界
+    const atHi = new Array<boolean>(n).fill(false);
+    for (let k = 0; k < cut; k++) atHi[order[k]] = true;
+    let num = 0;
+    let den = 0;
+    for (let i = 0; i < n; i++) {
+      const w = atHi[i] ? hi[i] : lo[i];
+      num += w * d[i];
+      den += w;
+    }
+    return { value: num / den, atHi };
+  };
+
+  for (let cut = 0; cut <= n; cut++) {
+    const cand = evaluate(cut);
+    // 平局保持确定性：取先评估到的更小值（cut 从小到大）
+    if (cand.value < best.value) best = cand;
+  }
+
+  const weights = best.atHi.map((isHi, i) =>
+    isHi ? intervals[i].max : intervals[i].min,
+  );
+  // 见证重心直接用未归一化重量组合复算，保证面板/SVG 可独立复核
+  const cog = centroidFromWeights(items, weights);
+  return { value: best.value, weights, cog };
+}
+
+/**
+ * 鲁棒分析：对支撑多边形的**每条边**求全部允许重量组合下的最差距离。
+ * 任一边最差距离 < margin 即存在可失守组合，返回全局最差边及其见证；
+ * 边界相等（worstDistance === margin）算满足，与标称判定一致。
+ */
+export function analyzeRobustness(
+  polygon: Point[],
+  items: CargoItemLike[],
+  margin: number,
+): RobustResult {
+  const intervals = weightIntervals(items);
+  const hasUncertainWeights = intervals.some((iv) => iv.uncertain);
+  const n = polygon.length;
+
+  const edges: RobustEdgeInfo[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % n];
+    const worst = worstEdgeDistance(items, intervals, a, b);
+    // 以见证重心直接复算该边距离，与标称计算路径一致（可复核）
+    const recomputed = signedDistanceToEdge(worst.cog, a, b);
+    edges.push({
+      edgeIndex: i,
+      worstDistance: recomputed,
+      worstWeights: worst.weights,
+      worstCog: worst.cog,
+      holds: recomputed >= margin,
+    });
+  }
+
+  // 全局最差边：值最小，平局取序号最小（与标称 criticalEdge 的确定性一致）
+  const critical = edges.reduce((m, e) =>
+    e.worstDistance < m.worstDistance ? e : m,
+  );
+
+  let failure: RobustFailureWitness | null = null;
+  let robustStable = true;
+  if (critical.worstDistance < margin) {
+    robustStable = false;
+    failure = {
+      weights: critical.worstWeights,
+      cog: critical.worstCog,
+      edgeIndex: critical.edgeIndex,
+      distance: critical.worstDistance,
+      shortfall: margin - critical.worstDistance,
+    };
+  }
+
+  return {
+    hasUncertainWeights,
+    edges,
+    worstMinDistance: critical.worstDistance,
+    robustStable,
+    failure,
+    margin,
+  };
+}
+
+type CargoItemLike = { weight: number; center: Point; weightMin?: number; weightMax?: number };
+
+/**
  * 对一份合法工作区执行完整稳定性分析。
  * 距离判断、稳定性结论均使用未舍入值；返回结果同时驱动数值面板与 SVG。
  * 无法可靠表达的量（合计重量溢出、余量低于图形分辨极限）进入 warnings，
@@ -349,6 +522,10 @@ export function analyzeStability(ws: Workspace): StabilityResult {
     safeRegion = insetPolygon(polygon, margin);
   }
 
+  // 鲁棒放行：对每条边证明所有允许重量组合都满足 margin。
+  // 与标称结论同源（同一 polygon/items/margin），共同驱动面板与 SVG。
+  const robust = analyzeRobustness(polygon, items, margin);
+
   return {
     polygon,
     items,
@@ -359,9 +536,10 @@ export function analyzeStability(ws: Workspace): StabilityResult {
     criticalEdge,
     safeRegion,
     stable,
-    releasable: stable && warnings.length === 0,
+    releasable: stable && warnings.length === 0 && robust.robustStable,
     warnings,
     margin,
     shortfall: stable ? 0 : margin - minDistance,
+    robust,
   };
 }

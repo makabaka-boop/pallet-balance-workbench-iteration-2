@@ -288,6 +288,95 @@ input[type='number']:invalid {
   border-radius: 50%;
 }
 
+.lg.witness {
+  background: #f97316;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  border: none;
+  border-radius: 0;
+}
+
+/* 鲁棒放行结论面板 */
+.robust-box {
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 12px 0;
+  border: 1px solid;
+  font-size: 13px;
+}
+
+.robust-box.robust-ok {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.robust-box.robust-fail {
+  background: rgba(249, 115, 22, 0.09);
+  border-color: rgba(249, 115, 22, 0.55);
+}
+
+.robust-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.robust-badge {
+  display: inline-block;
+  font-weight: 800;
+  letter-spacing: 1px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  color: #052e16;
+}
+
+.robust-ok .robust-badge {
+  background: #4ade80;
+}
+
+.robust-fail .robust-badge {
+  background: #fb923c;
+  color: #431407;
+}
+
+.robust-sub {
+  color: var(--muted);
+}
+
+.robust-metric {
+  color: var(--text);
+}
+
+.robust-witness {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.witness-cog {
+  color: var(--muted);
+}
+
+.witness-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.witness-table th,
+.witness-table td {
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 3px 8px;
+  text-align: right;
+}
+
+.witness-table th:first-child,
+.witness-table td:first-child {
+  text-align: left;
+}
+
 .verdict {
   position: relative;
 }

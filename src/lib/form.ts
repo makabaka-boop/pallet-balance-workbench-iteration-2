@@ -1,11 +1,14 @@
 import { analyzeStability } from './geometry';
 import { COORD_BOUND } from './parse';
-import type { StabilityResult, Workspace } from './types';
+import type { CargoItem, StabilityResult, Workspace } from './types';
 
 /** 编辑表单中的单行文本（未提交的原始输入也保留为字符串） */
 export interface ItemDraft {
   id: string;
   weight: string;
+  /** 空字符串或省略表示未给出（沿用登记重量） */
+  weightMin?: string;
+  weightMax?: string;
   x: string;
   y: string;
 }
@@ -21,6 +24,8 @@ export function workspaceToForm(ws: Workspace): FormState {
     items: ws.items.map((it) => ({
       id: it.id,
       weight: String(it.weight),
+      weightMin: it.weightMin !== undefined ? String(it.weightMin) : '',
+      weightMax: it.weightMax !== undefined ? String(it.weightMax) : '',
       x: String(it.center.x),
       y: String(it.center.y),
     })),
@@ -58,9 +63,43 @@ export function resolveForm(polygon: Workspace['polygon'], form: FormState): Res
     const w = Number(d.weight);
     const x = Number(d.x);
     const y = Number(d.y);
+    // 区间字段可选：留空即沿用登记重量
+    const minText = (d.weightMin ?? '').trim();
+    const maxText = (d.weightMax ?? '').trim();
 
     if (d.weight.trim() === '' || !Number.isFinite(w) || w <= 0) {
       errors.push(`${where}：重量必须为正数`);
+    }
+    let weightMin: number | undefined;
+    let weightMax: number | undefined;
+    if (minText !== '') {
+      const m = Number(minText);
+      if (!Number.isFinite(m) || m <= 0) {
+        errors.push(`${where}：重量下界必须为正数`);
+      } else {
+        weightMin = m;
+      }
+    }
+    if (maxText !== '') {
+      const m = Number(maxText);
+      if (!Number.isFinite(m) || m <= 0) {
+        errors.push(`${where}：重量上界必须为正数`);
+      } else {
+        weightMax = m;
+      }
+    }
+    if (
+      weightMin !== undefined &&
+      weightMax !== undefined &&
+      weightMin > weightMax
+    ) {
+      errors.push(`${where}：重量下界不能大于上界`);
+    }
+    if (weightMin !== undefined && Number.isFinite(w) && w < weightMin) {
+      errors.push(`${where}：登记重量不能小于重量下界`);
+    }
+    if (weightMax !== undefined && Number.isFinite(w) && w > weightMax) {
+      errors.push(`${where}：登记重量不能大于重量上界`);
     }
     if (d.x.trim() === '' || !Number.isFinite(x) || Math.abs(x) > COORD_BOUND) {
       errors.push(`${where}：X 必须是绝对值不超过 1e6 的有限数`);
@@ -68,7 +107,10 @@ export function resolveForm(polygon: Workspace['polygon'], form: FormState): Res
     if (d.y.trim() === '' || !Number.isFinite(y) || Math.abs(y) > COORD_BOUND) {
       errors.push(`${where}：Y 必须是绝对值不超过 1e6 的有限数`);
     }
-    return { id: d.id, weight: w, center: { x, y } };
+    const item: CargoItem = { id: d.id, weight: w, center: { x, y } };
+    if (weightMin !== undefined) item.weightMin = weightMin;
+    if (weightMax !== undefined) item.weightMax = weightMax;
+    return item;
   });
 
   if (errors.length > 0) return { ok: false, errors };

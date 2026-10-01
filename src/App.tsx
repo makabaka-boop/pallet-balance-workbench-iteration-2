@@ -101,9 +101,9 @@ export default function App() {
       )}
 
       <footer className="app-footer">
-        支撑多边形：逆时针严格凸 · 绿色描边=可放行 STABLE，琥珀描边=稳定但存在不可表达量（暂缓放行），
-        红色粗边=最危险边，蓝色虚线=margin 安全区（仅在能与原边区分时绘制），
-        青色十字=合成重心，红色虚线=实际余量
+        支撑多边形：逆时针严格凸 · 绿色描边=可放行，琥珀描边=标称稳定但暂缓放行（含不可表达量或鲁棒失守），
+        红色粗边=标称最危险边，蓝色虚线=margin 安全区（仅在能与原边区分时绘制），
+        青色十字=标称重心，橙色三角=鲁棒失败见证重心（可复算极端重量组合），红色虚线=标称实际余量
       </footer>
     </div>
   );
@@ -114,9 +114,10 @@ function Legend() {
     <div className="legend">
       <span><i className="lg support" /> 支撑多边形</span>
       <span><i className="lg safe" /> margin 安全区</span>
-      <span><i className="lg danger" /> 最危险边 / 实际余量</span>
-      <span><i className="lg cargo" /> 货物（半径∝√重量）</span>
-      <span><i className="lg cog" /> 合成重心</span>
+      <span><i className="lg danger" /> 标称最危险边 / 实际余量</span>
+      <span><i className="lg witness" /> 鲁棒失守边 / 失败见证重心</span>
+      <span><i className="lg cargo" /> 货物（半径∝√登记重量）</span>
+      <span><i className="lg cog" /> 标称合成重心</span>
     </div>
   );
 }

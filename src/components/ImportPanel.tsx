@@ -52,6 +52,8 @@ export default function ImportPanel({ onApply }: Props) {
         JSON：<code>polygon</code> 为逆时针严格凸多边形顶点（<code>[x,y]</code> 或{' '}
         <code>{'{x,y}'}</code>，绝对值 ≤ 1e6）；<code>items</code> 为 1–200
         件货物，含唯一 <code>id</code>、正数 <code>weight</code>、<code>center</code>
+        ，以及可选的正数 <code>weightMin</code> / <code>weightMax</code>
+        （散装货称重误差范围，省略即沿用确定重量；区间必须包含登记重量）
         ；<code>margin</code> 为非负数。任何非法字段或未知字段都会整批拒绝。
       </p>
       <textarea
