@@ -9,7 +9,7 @@ export const MAX_ITEMS = 200;
 
 const ALLOWED_TOP_KEYS = new Set(['polygon', 'items', 'margin']);
 const ALLOWED_POINT_KEYS = new Set(['x', 'y']);
-const ALLOWED_ITEM_KEYS = new Set(['id', 'weight', 'center']);
+const ALLOWED_ITEM_KEYS = new Set(['id', 'weight', 'weightMin', 'weightMax', 'center']);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -141,11 +141,57 @@ export function parseWorkspace(input: unknown): FormResult {
         validWeight = true;
       }
 
+      // 可选重量区间：任一边界给出即按区间处理；缺省的一端沿用标称重量。
+      // 必须为正数且 weightMin <= weight <= weightMax，否则整批拒绝。
+      let validRange = false;
+      let weightMin: number | undefined;
+      let weightMax: number | undefined;
+      {
+        const hasMin = Object.prototype.hasOwnProperty.call(raw, 'weightMin');
+        const hasMax = Object.prototype.hasOwnProperty.call(raw, 'weightMax');
+        const rawMin: unknown = raw.weightMin;
+        const rawMax: unknown = raw.weightMax;
+        const minOk = isFiniteNumber(rawMin);
+        const maxOk = isFiniteNumber(rawMax);
+        if (hasMin && (!minOk || rawMin <= 0)) {
+          errors.push(`${path}.weightMin：必须为正数（有限数）`);
+        }
+        if (hasMax && (!maxOk || rawMax <= 0)) {
+          errors.push(`${path}.weightMax：必须为正数（有限数）`);
+        }
+
+        const w = validWeight ? (weight as number) : NaN;
+        // 缺省端沿用确定重量；标称重量非法时已在前面记录错误，这里不组装即可
+        if (hasMin && minOk && rawMin > 0) weightMin = rawMin;
+        if (hasMax && maxOk && rawMax > 0) weightMax = rawMax;
+        if (hasMin && !hasMax && validWeight) weightMax = w;
+        if (!hasMin && hasMax && validWeight) weightMin = w;
+
+        if (weightMin !== undefined && weightMax !== undefined) {
+          if (weightMin > weightMax) {
+            errors.push(
+              `${path}：重量区间非法（weightMin ${weightMin} ＞ weightMax ${weightMax}）`,
+            );
+          } else if (validWeight && (w < weightMin || w > weightMax)) {
+            errors.push(
+              `${path}：标称重量 ${w} 必须落在登记区间 [${weightMin}, ${weightMax}] 内`,
+            );
+          } else {
+            validRange = true;
+          }
+        } else if (!hasMin && !hasMax) {
+          validRange = true; // 无区间：沿用确定重量（旧 JSON 兼容）
+        }
+      }
+
       const center = parsePoint(raw.center, `${path}.center`, errors);
 
       // 任一错误都会让 errors 非空从而整批拒绝；全部合法时才组装
-      if (validId && validWeight && center) {
-        items.push({ id: id as string, weight: weight as number, center });
+      if (validId && validWeight && center && validRange) {
+        const item: CargoItem = { id: id as string, weight: weight as number, center };
+        if (weightMin !== undefined) item.weightMin = weightMin;
+        if (weightMax !== undefined) item.weightMax = weightMax;
+        items.push(item);
       }
     }
   }

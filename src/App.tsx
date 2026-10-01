@@ -31,6 +31,7 @@ export default function App() {
         <h1>异形托盘叉车起运 · 稳定性工作台</h1>
         <p className="subtitle">
           纯前端离线运行 · 重量加权合成重心 · 重心到各支撑边最小有符号距离 ·
+          标称结论 + 鲁棒放行（对每条边证明全部允许重量组合满足 margin）·
           边界判断全程使用未舍入值
         </p>
       </header>
@@ -101,9 +102,10 @@ export default function App() {
       )}
 
       <footer className="app-footer">
-        支撑多边形：逆时针严格凸 · 绿色描边=可放行 STABLE，琥珀描边=稳定但存在不可表达量（暂缓放行），
-        红色粗边=最危险边，蓝色虚线=margin 安全区（仅在能与原边区分时绘制），
-        青色十字=合成重心，红色虚线=实际余量
+        支撑多边形：逆时针严格凸 · 绿色描边=鲁棒可放行，琥珀描边=暂缓放行（存在不可表达/无法裁决量），
+        红色描边=标称或鲁棒失守 · 蓝色虚线=margin 安全区（仅在能与原边区分时绘制）·
+        青色十字=标称重心，红粉五边形=鲁棒失败见证（允许重量组合下的极端重心），
+        橙色虚线圈=货物重量区间对应的半径不确定性
       </footer>
     </div>
   );
@@ -114,9 +116,10 @@ function Legend() {
     <div className="legend">
       <span><i className="lg support" /> 支撑多边形</span>
       <span><i className="lg safe" /> margin 安全区</span>
-      <span><i className="lg danger" /> 最危险边 / 实际余量</span>
+      <span><i className="lg danger" /> 最危险边 / 失守边</span>
       <span><i className="lg cargo" /> 货物（半径∝√重量）</span>
-      <span><i className="lg cog" /> 合成重心</span>
+      <span><i className="lg cog" /> 标称重心</span>
+      <span><i className="lg witness" /> 鲁棒失败见证</span>
     </div>
   );
 }

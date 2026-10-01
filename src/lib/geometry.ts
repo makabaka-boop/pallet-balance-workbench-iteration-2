@@ -1,4 +1,16 @@
-import type { EdgeInfo, Point, StabilityResult, Workspace } from './types';
+import {
+  allItemsExact,
+  analyzeRobustEdges,
+  buildWitness,
+  itemRange,
+} from './robust';
+import type {
+  EdgeInfo,
+  Point,
+  RobustResult,
+  StabilityResult,
+  Workspace,
+} from './types';
 
 /** 2D 叉积 (b-a) × (c-a)，正值表示 c 在有向边 a→b 的左侧 */
 export function cross(a: Point, b: Point, c: Point): number {
@@ -295,9 +307,11 @@ export function insetPolygon(polygon: Point[], margin: number): Point[] {
 
 /**
  * 对一份合法工作区执行完整稳定性分析。
- * 距离判断、稳定性结论均使用未舍入值；返回结果同时驱动数值面板与 SVG。
- * 无法可靠表达的量（合计重量溢出、余量低于图形分辨极限）进入 warnings，
- * 并使 releasable 为 false——计算结论可以照给，但不能据此放行。
+ * 标称距离判断、鲁棒重量区间证明与稳定性结论均使用未舍入值；
+ * 返回结果同时驱动数值面板与 SVG（同一份结果，不存在第二套判断）。
+ * 无法可靠表达的量（合计重量溢出、区间组合溢出、余量低于图形分辨极限、
+ * 鲁棒裁决不确定）进入 warnings，并使 releasable 为 false——
+ * 计算结论可以照给，但不能据此放行。
  */
 export function analyzeStability(ws: Workspace): StabilityResult {
   const { polygon, items, margin } = ws;
@@ -349,6 +363,76 @@ export function analyzeStability(ws: Workspace): StabilityResult {
     safeRegion = insetPolygon(polygon, margin);
   }
 
+  /* ---- 鲁棒放行分析：对支撑多边形每条边证明全部允许重量组合满足 margin ---- */
+  const exact = allItemsExact(items);
+  const ranges = items.map(itemRange);
+  const robustAnalysis = analyzeRobustEdges(polygon, items, ranges);
+  const anyIndeterminate = robustAnalysis.edges.some(
+    (e) => e.status === 'indeterminate',
+  );
+
+  let robust: RobustResult;
+
+  if (robustAnalysis.anyCornerOverflow) {
+    // 存在合计重量溢出 double 的允许组合：该极端载荷不可审核，不得放行。
+    // 几何最坏距离仍可在归一化重量下求出（各边分析照给），但不构成放行依据。
+    warnings.push({
+      code: 'robust-corner-overflow',
+      message:
+        `存在允许重量组合的合计重量超出 double 可表达范围（全部取上界的角点溢出），` +
+        `该极端载荷不可审核；鲁棒放行不成立，请收紧重量区间后重新评估。`,
+    });
+  }
+
+  if (anyIndeterminate) {
+    robust = {
+      status: 'indeterminate',
+      allExact: exact,
+      ranges,
+      worstMinDistance: null,
+      witness: null,
+      margin,
+    };
+    warnings.push({
+      code: 'robust-indeterminate',
+      message:
+        `重量区间下的最坏重心无法在当前数值精度内对每条边完成可靠裁决` +
+        `（线性分式规划未通过交叉校验）；“无法可靠裁决”不等于满足，禁止放行。`,
+    });
+  } else {
+    const edgeWorst = robustAnalysis.edges.map((e) => ({
+      index: e.index,
+      worstDistance: e.worstDistance as number,
+    }));
+    // 平局取边序最小
+    const worstEdge = edgeWorst.reduce((m, e) =>
+      e.worstDistance < m.worstDistance ? e : m,
+    );
+    if (worstEdge.worstDistance >= margin) {
+      robust = {
+        status: 'robust-pass',
+        allExact: exact,
+        ranges,
+        edgeWorst,
+        worstMinDistance: worstEdge.worstDistance,
+        witness: null,
+        margin,
+      };
+    } else {
+      const verdict = robustAnalysis.edges[worstEdge.index];
+      const witness = buildWitness(polygon, items, verdict.weights!, margin);
+      robust = {
+        status: 'robust-fail',
+        allExact: exact,
+        ranges,
+        edgeWorst,
+        worstMinDistance: worstEdge.worstDistance,
+        witness,
+        margin,
+      };
+    }
+  }
+
   return {
     polygon,
     items,
@@ -359,9 +443,10 @@ export function analyzeStability(ws: Workspace): StabilityResult {
     criticalEdge,
     safeRegion,
     stable,
-    releasable: stable && warnings.length === 0,
+    releasable: stable && robust.status === 'robust-pass' && warnings.length === 0,
     warnings,
     margin,
     shortfall: stable ? 0 : margin - minDistance,
+    robust,
   };
 }

@@ -212,7 +212,7 @@ describe('验收 6：导入/编辑解析对同一输入与几何/指标结论一
   it('resolveForm：极小正余量 + 边界重心 → UNSTABLE，短缺非零', () => {
     const form = {
       margin: '1e-12',
-      items: [{ id: 'a', weight: '1', x: '50', y: '0' }],
+      items: [{ id: 'a', weight: '1', weightMin: '', weightMax: '', x: '50', y: '0' }],
     };
     const r = resolveForm(square100, form);
     expect(r.ok).toBe(true);
@@ -228,8 +228,8 @@ describe('验收 6：导入/编辑解析对同一输入与几何/指标结论一
     const form = {
       margin: '1',
       items: [
-        { id: 'a', weight: '1.7e308', x: '40', y: '50' },
-        { id: 'b', weight: '1.7e308', x: '60', y: '50' },
+        { id: 'a', weight: '1.7e308', weightMin: '', weightMax: '', x: '40', y: '50' },
+        { id: 'b', weight: '1.7e308', weightMin: '', weightMax: '', x: '60', y: '50' },
       ],
     };
     const r = resolveForm(square100, form);
@@ -244,7 +244,7 @@ describe('验收 6：导入/编辑解析对同一输入与几何/指标结论一
   it('resolveForm：常规重量与零余量边界保持兼容', () => {
     const r = resolveForm(square100, {
       margin: '0',
-      items: [{ id: 'a', weight: '120', x: '50', y: '0' }],
+      items: [{ id: 'a', weight: '120', weightMin: '', weightMax: '', x: '50', y: '0' }],
     });
     expect(r.ok).toBe(true);
     if (r.ok) {

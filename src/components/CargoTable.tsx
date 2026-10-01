@@ -7,7 +7,8 @@ interface Props {
 
 /**
  * 货物编辑表。输入即修改：每次按键都会更新表单，
- * 由父组件立即重新解析；非法输入时旧结论被撤销（见 App 中的 resolveForm）。
+ * 由父组件立即重新解析；非法输入（含非法重量区间）时旧结论被撤销
+ * （见 App 中的 resolveForm）。
  */
 export default function CargoTable({ form, onChange }: Props) {
   const updateItem = (i: number, patch: Partial<ItemDraft>) => {
@@ -30,12 +31,19 @@ export default function CargoTable({ form, onChange }: Props) {
           />
         </label>
       </div>
+      <p className="hint range-hint">
+        <code>重量下界</code>/<code>重量上界</code> 可留空：留空端沿用标称重量
+        （旧 JSON 仅有确定重量）。两端都留空即为确定重量；给出区间后，
+        鲁棒结论会对<strong>全部允许重量组合</strong>逐边证明，而非只看标称值。
+      </p>
       <div className="table-wrap">
         <table className="cargo-table">
           <thead>
             <tr>
               <th>ID</th>
-              <th>重量 weight</th>
+              <th>标称重量</th>
+              <th>重量下界（可选）</th>
+              <th>重量上界（可选）</th>
               <th>中心 X</th>
               <th>中心 Y</th>
             </tr>
@@ -50,8 +58,30 @@ export default function CargoTable({ form, onChange }: Props) {
                     min={0}
                     step="any"
                     value={it.weight}
-                    aria-label={`${it.id} 重量`}
+                    aria-label={`${it.id} 标称重量`}
                     onChange={(e) => updateItem(i, { weight: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    placeholder="同标称"
+                    value={it.weightMin}
+                    aria-label={`${it.id} 重量下界`}
+                    onChange={(e) => updateItem(i, { weightMin: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    placeholder="同标称"
+                    value={it.weightMax}
+                    aria-label={`${it.id} 重量上界`}
+                    onChange={(e) => updateItem(i, { weightMax: e.target.value })}
                   />
                 </td>
                 <td>

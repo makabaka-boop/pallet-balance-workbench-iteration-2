@@ -6,6 +6,10 @@ import type { StabilityResult, Workspace } from './types';
 export interface ItemDraft {
   id: string;
   weight: string;
+  /** 可选重量下界文本；空串表示未填写（该端沿用标称重量） */
+  weightMin: string;
+  /** 可选重量上界文本；空串表示未填写（该端沿用标称重量） */
+  weightMax: string;
   x: string;
   y: string;
 }
@@ -21,6 +25,9 @@ export function workspaceToForm(ws: Workspace): FormState {
     items: ws.items.map((it) => ({
       id: it.id,
       weight: String(it.weight),
+      // 区间端点仅在导入数据中显式给出时回填；空白表示确定重量
+      weightMin: it.weightMin !== undefined ? String(it.weightMin) : '',
+      weightMax: it.weightMax !== undefined ? String(it.weightMax) : '',
       x: String(it.center.x),
       y: String(it.center.y),
     })),
@@ -31,10 +38,18 @@ export type ResolvedForm =
   | { ok: true; result: StabilityResult }
   | { ok: false; errors: string[] };
 
+/** 解析一个非空数值输入；空串或非有限数返回 NaN */
+function parseNum(text: string): number {
+  if (text.trim() === '') return NaN;
+  const v = Number(text);
+  return Number.isFinite(v) ? v : NaN;
+}
+
 /**
  * 把当前编辑表单解析为工作区并立即执行稳定性分析。
- * 任何字段非法即判定失败，调用方据此撤销旧结论——
- * 数值面板与 SVG 只可能同时展示同一份成功结果，或同时不展示结论。
+ * 任何字段非法（含重量区间：非正、下界＞上界、标称重量不在区间内）即判定失败，
+ * 调用方据此撤销旧结论——数值面板与 SVG 只可能同时展示同一份成功结果，
+ * 或同时不展示结论。
  */
 export function resolveForm(polygon: Workspace['polygon'], form: FormState): ResolvedForm {
   const errors: string[] = [];
@@ -55,20 +70,50 @@ export function resolveForm(polygon: Workspace['polygon'], form: FormState): Res
 
   const items = form.items.map((d, i) => {
     const where = `货物 "${d.id || `#${i + 1}`}"`;
-    const w = Number(d.weight);
-    const x = Number(d.x);
-    const y = Number(d.y);
+    const w = parseNum(d.weight);
+    const x = parseNum(d.x);
+    const y = parseNum(d.y);
+    const hasMin = d.weightMin.trim() !== '';
+    const hasMax = d.weightMax.trim() !== '';
+    const wmin = hasMin ? parseNum(d.weightMin) : NaN;
+    const wmax = hasMax ? parseNum(d.weightMax) : NaN;
 
-    if (d.weight.trim() === '' || !Number.isFinite(w) || w <= 0) {
+    if (!(w > 0)) {
       errors.push(`${where}：重量必须为正数`);
     }
-    if (d.x.trim() === '' || !Number.isFinite(x) || Math.abs(x) > COORD_BOUND) {
+    if (hasMin && !(wmin > 0)) {
+      errors.push(`${where}：重量下界必须为正数（留空表示不设下界）`);
+    }
+    if (hasMax && !(wmax > 0)) {
+      errors.push(`${where}：重量上界必须为正数（留空表示不设上界）`);
+    }
+    // 缺省端沿用标称重量；只在两端都可解析时检查区间序与包含关系
+    const lo = hasMin ? wmin : w;
+    const hi = hasMax ? wmax : w;
+    if ((w > 0) && (hasMin || hasMax)) {
+      if (wmin > 0 && wmax > 0 && hasMin && hasMax && wmin > wmax) {
+        errors.push(`${where}：重量区间非法（下界 ${wmin} ＞ 上界 ${wmax}）`);
+      } else if (lo > 0 && hi > 0 && (w < lo || w > hi)) {
+        errors.push(
+          `${where}：标称重量 ${w} 必须落在登记区间 [${hasMin ? wmin : w}, ${hasMax ? wmax : w}] 内`,
+        );
+      }
+    }
+    if (!(Math.abs(x) <= COORD_BOUND)) {
       errors.push(`${where}：X 必须是绝对值不超过 1e6 的有限数`);
     }
-    if (d.y.trim() === '' || !Number.isFinite(y) || Math.abs(y) > COORD_BOUND) {
+    if (!(Math.abs(y) <= COORD_BOUND)) {
       errors.push(`${where}：Y 必须是绝对值不超过 1e6 的有限数`);
     }
-    return { id: d.id, weight: w, center: { x, y } };
+
+    const item: Workspace['items'][number] = {
+      id: d.id,
+      weight: w,
+      center: { x, y },
+    };
+    if (hasMin && wmin > 0) item.weightMin = wmin;
+    if (hasMax && wmax > 0) item.weightMax = wmax;
+    return item;
   });
 
   if (errors.length > 0) return { ok: false, errors };
